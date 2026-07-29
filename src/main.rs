@@ -1,5 +1,6 @@
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
+use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{Receiver, channel};
@@ -91,16 +92,20 @@ impl DebouncedWatcher {
 }
 
 fn main() -> notify::Result<()> {
-    let path = Path::new("/home/tianchu/Projects/rust/asciv-engine");
+    let args: Vec<String> = env::args().collect();
+    let path: String = args
+        .iter()
+        .position(|arg| arg == "--path")
+        .map(|p| args.get(p + 1))
+        .expect("No --path argument provided")
+        .expect("Path argument is not valid")
+        .clone();
 
-    let mut debouncer = DebouncedWatcher::new(
-        path.to_str().unwrap_or_default(),
-        Duration::from_millis(500),
-        debounce_callback,
-    )
-    .expect("Debouncer failed to initialize.");
+    let mut debouncer =
+        DebouncedWatcher::new(path.clone(), Duration::from_millis(500), debounce_callback)
+            .expect("Debouncer failed to initialize.");
 
-    debouncer.watch(&path, RecursiveMode::Recursive)?;
+    debouncer.watch(Path::new(&path), RecursiveMode::Recursive)?;
 
     println!("Watching {:?} for changes...", path);
 
@@ -135,23 +140,6 @@ fn debounce_callback(events: Vec<Event>, root_path: String) {
     for event in events {
         let event_kind = event.kind;
 
-        // for path in &event.paths {
-        //     if ignore_patterns
-        //         .iter()
-        //         .any(|p| p.matches(&path.to_string_lossy()))
-        //     {
-        //         continue;
-        //     }
-        //
-        //     if !watch_patterns
-        //         .iter()
-        //         .any(|p| p.matches(&path.to_string_lossy()))
-        //     {
-        //         continue;
-        //     }
-        //     println!("raw event kind: {:?}", event_kind);
-        //     println!("raw event path: {:?}", path);
-        // }
         if !should_rebuild(&event_kind) {
             continue;
         }
