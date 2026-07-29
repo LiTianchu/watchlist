@@ -1,0 +1,9 @@
+[package]
+name = "file-watch-ui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+notify = "8.1.0"
+notify-debouncer-mini = "0.7.0"
+glob = "0.3.4"
