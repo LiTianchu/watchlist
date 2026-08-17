@@ -44,7 +44,20 @@ fn main() -> notify::Result<()> {
             "--exec" | "-e" => {
                 if i + 1 < user_args.len() && user_args[i + 1] != "" {
                     let arg_val = &user_args[i + 1];
-                    let split_args = arg_val.split(" ").collect::<Vec<&str>>();
+
+                    let initial_split: Vec<&str> = arg_val.split(" ").collect();
+
+                    if initial_split.is_empty() || initial_split[0].is_empty() {
+                        eprintln!("No exec command provided");
+                        invalid_flags = true;
+                    }
+
+                    let split_args: Vec<String> = if initial_split.first() == Some(&"sh") {
+                        shell_words::split(arg_val).expect("Failed to parse shell command")
+                    } else {
+                        initial_split.iter().map(|s| s.to_string()).collect()
+                    };
+
                     println!("Command Args: {:?}", &split_args);
 
                     let _ = split_args
@@ -58,11 +71,6 @@ fn main() -> notify::Result<()> {
                             }
                         })
                         .collect::<Vec<_>>();
-
-                    if command == "" {
-                        eprintln!("No exec command provided");
-                        invalid_flags = true;
-                    }
                 } else {
                     eprintln!("No exec command argument provided");
                     invalid_flags = true;

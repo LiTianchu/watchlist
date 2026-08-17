@@ -144,6 +144,10 @@ fn command_exec_callback(
     ];
     let watch_patterns = vec![
         glob::Pattern::new("*.rs").unwrap(),
+        glob::Pattern::new("*.txt").unwrap(),
+        glob::Pattern::new("*.png").unwrap(),
+        glob::Pattern::new("*.jpg").unwrap(),
+        glob::Pattern::new("*.jepg").unwrap(),
         glob::Pattern::new("*.toml").unwrap(),
     ];
 
