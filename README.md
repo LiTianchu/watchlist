@@ -1,5 +1,12 @@
 # Watchlist
 
+### Build
+
 ```
-cargo run -- --path "<your-folder-path>"
+cargo build
+```
+
+### Run
+```
+cargo run -- --path "<your-folder-path>" --exec "<your-command>"
 ```

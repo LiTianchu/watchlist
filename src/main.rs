@@ -170,11 +170,8 @@ fn main() -> notify::Result<()> {
     } else {
         let path = path?.to_string_lossy().to_string();
 
-        println!(
-            "Exec command waiting: {} {}",
-            &command,
-            &command_args.join(" ")
-        );
+        let full_command = format!("{} {}", &command, &command_args.join(" "));
+        println!("Exec command waiting: {}", &full_command);
 
         if should_save_command {
             let save_line = format!("{}\\0{}\\0{}", &path, &command, &command_args.join(" "));
@@ -188,9 +185,12 @@ fn main() -> notify::Result<()> {
             )
         }
 
-        let panic_message = format!("failed to run cargo build on {:?}", path);
-        let success_message = format!("Build cargo project succeeded: {:?}", path);
-        let fail_message = format!("Build failed: {:?}", path);
+        let panic_message = format!(
+            "Fatal error occured when running {} on {}",
+            &full_command, &path
+        );
+        let success_message = format!("Command {} succeeded on {}", &full_command, &path);
+        let fail_message = format!("Command {} failed on {}", &full_command, &path);
         let status_messages = StatusMessages {
             panic_message,
             success_message,
