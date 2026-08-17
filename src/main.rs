@@ -58,7 +58,7 @@ fn main() -> notify::Result<()> {
                         initial_split.iter().map(|s| s.to_string()).collect()
                     };
 
-                    println!("Command Args: {:?}", &split_args);
+                    println!("Full Command Components: {:?}", &split_args);
 
                     let _ = split_args
                         .iter()
@@ -97,10 +97,13 @@ fn main() -> notify::Result<()> {
                                 command = parts[1].to_string();
                             } else if i == 2 {
                                 label = "Command Argumnets";
-                                command_args = parts[2]
-                                    .split(" ")
-                                    .map(|s| s.to_string())
-                                    .collect::<Vec<_>>();
+                                let initial_split: Vec<&str> = parts[2].split(" ").collect();
+
+                                command_args = if parts[1] == "sh" {
+                                    shell_words::split(parts[2]).expect("Failed to parse loaded shell command arguments")
+                                } else {
+                                    initial_split.iter().map(|s| s.to_string()).collect()
+                                };
                             }
 
                             println!("{}: {}", label, part);
@@ -182,7 +185,9 @@ fn main() -> notify::Result<()> {
         println!("Exec command waiting: {}", &full_command);
 
         if should_save_command {
-            let save_line = format!("{}\\0{}\\0{}", &path, &command, &command_args.join(" "));
+            // saving
+            let args_str = shell_words::join(&command_args); // quotes elements containing whitespace
+            let save_line = format!("{}\\0{}\\0{}", &path, &command, &args_str);
             saver::write_new_line(SAVE_FILE_PATH, &save_line)?;
 
             println!(

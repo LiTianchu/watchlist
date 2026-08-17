@@ -1,10 +1,27 @@
 use std::{
     fs::OpenOptions,
-    io::{self, BufRead, Error, Write},
+    io::{self, BufRead, Error, Write, ErrorKind},
+    path::PathBuf,
 };
 
-pub fn read_save_lines(save_path: impl Into<String>) -> Result<Vec<String>, Error> {
-    let save_path = save_path.into();
+const APP_DIR_NAME: &str = "watchlist";
+
+pub fn resolve_save_path(save_file_name: impl Into<String>) -> Result<PathBuf, Error> {
+    let mut dir = dirs::data_dir()
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, "Could not determine user data directory"))?;
+
+    dir.push(APP_DIR_NAME);
+
+    // create the app's subdirectory if it doesn't exist yet
+    std::fs::create_dir_all(&dir)?;
+
+    dir.push(save_file_name.into());
+    Ok(dir)
+}
+
+pub fn read_save_lines(save_file_name: impl Into<String>) -> Result<Vec<String>, Error> {
+    let save_file_name = save_file_name.into();
+    let save_path = resolve_save_path(save_file_name.clone())?;
 
     let file = OpenOptions::new()
         .read(true)
@@ -23,8 +40,9 @@ pub fn read_save_lines(save_path: impl Into<String>) -> Result<Vec<String>, Erro
     Ok(lines)
 }
 
-pub fn write_new_line(save_path: impl Into<String>, line: impl Into<String>) -> Result<(), Error> {
-    let save_path = save_path.into();
+pub fn write_new_line(save_file_name: impl Into<String>, line: impl Into<String>) -> Result<(), Error> {
+    let save_file_name = save_file_name.into();
+    let save_path = resolve_save_path(save_file_name.clone())?;
     let saving_line = line.into();
 
     let mut file = OpenOptions::new()
@@ -48,10 +66,11 @@ pub fn write_new_line(save_path: impl Into<String>, line: impl Into<String>) -> 
     Ok(())
 }
 
-pub fn remove_line_by_index(save_path: impl Into<String>, index: usize) -> Result<(), Error> {
+pub fn remove_line_by_index(save_file_name: impl Into<String>, index: usize) -> Result<(), Error> {
     println!("Removing line at index {}", index);
-    let save_path = save_path.into();
-    let curr_lines = read_save_lines(save_path.clone())?;
+    let save_file_name = save_file_name.into();
+    let save_path = resolve_save_path(save_file_name.clone())?;
+    let curr_lines = read_save_lines(save_file_name.clone())?;
     let prev_line_count = curr_lines.len();
     let remaining_lines = curr_lines.iter().enumerate().filter(|(i, _)| *i != index);
     let remaining_line_count = remaining_lines.clone().collect::<Vec<_>>().len();
@@ -82,8 +101,9 @@ pub fn remove_line_by_index(save_path: impl Into<String>, index: usize) -> Resul
     Ok(())
 }
 
-pub fn read_line_by_index(save_path: impl Into<String>, index: usize) -> Result<String, Error> {
-    let save_path = save_path.into();
+pub fn read_line_by_index(save_file_name: impl Into<String>, index: usize) -> Result<String, Error> {
+    let save_file_name = save_file_name.into();
+    let save_path = resolve_save_path(save_file_name.clone())?;
 
     let file = OpenOptions::new()
         .read(true)
