@@ -1,4 +1,4 @@
-# file-watch-ui
+# Watchlist
 
 ```
 cargo run -- --path "<your-folder-path>"

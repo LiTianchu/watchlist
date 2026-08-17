@@ -1,9 +1,9 @@
-use file_watch::watcher::{DebouncedWatcher, StatusMessages};
 use notify::{EventKind, RecursiveMode};
 use std::env;
 use std::path::Path;
 use std::sync::mpsc::channel;
 use std::time::Duration;
+use watchlist::watcher::{DebouncedWatcher, StatusMessages};
 
 fn main() -> notify::Result<()> {
     let args: Vec<String> = env::args().collect();
