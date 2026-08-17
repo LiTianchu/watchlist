@@ -3,7 +3,12 @@ use std::env;
 use std::path::Path;
 use std::sync::mpsc::channel;
 use std::time::Duration;
-use watchlist::watcher::{DebouncedWatcher, StatusMessages};
+use watchlist::{
+    saver,
+    watcher::{DebouncedWatcher, StatusMessages},
+};
+
+const SAVE_FILE_PATH: &str = ".watchlist";
 
 fn main() -> notify::Result<()> {
     let user_args: Vec<String> = env::args().collect();
@@ -12,6 +17,10 @@ fn main() -> notify::Result<()> {
     let mut command: String = "".to_string();
     let mut command_args: Vec<String> = Vec::new();
     let mut invalid_flags = false;
+    let mut should_save_command = false;
+    let mut showing_usage = false;
+    let mut listing = false;
+    let mut removing = false;
 
     for i in 0..user_args.len() {
         let arg = &user_args[i];
@@ -59,6 +68,54 @@ fn main() -> notify::Result<()> {
                     invalid_flags = true;
                 }
             }
+            "--save" | "-s" => {
+                should_save_command = true;
+            }
+            "--remove" | "-r" => {
+                if i + 1 < user_args.len() && user_args[i + 1] != "" {
+                    let arg_val = &user_args[i + 1];
+                    // check if it is a number
+                    if arg_val.parse::<usize>().is_ok() {
+                        saver::remove_line_by_index(
+                            SAVE_FILE_PATH,
+                            arg_val.parse::<usize>().unwrap(),
+                        )?;
+                        removing = true;
+                    } else {
+                        eprintln!("Remove index argument must be a number");
+                        invalid_flags = true;
+                    }
+                } else {
+                    eprintln!("No remove index argument provided");
+                    invalid_flags = true;
+                }
+            }
+            "--list" | "-l" => {
+                saver::read_save_lines(SAVE_FILE_PATH)
+                    .expect("Read save lines failed!")
+                    .iter()
+                    .enumerate()
+                    .for_each(|(i, s)| {
+                        let parts: Vec<&str> = s.split("\\0").collect();
+                        println!("\n=======Record Index: {}=======", i);
+                        for (i, part) in parts.iter().enumerate() {
+                            let mut label = "Unknown Record";
+                            if i == 0 {
+                                label = "Watch Path"
+                            } else if i == 1 {
+                                label = "Exec Command"
+                            } else if i == 2 {
+                                label = "Command Argumnets"
+                            }
+
+                            println!("{}: {}", label, part);
+                        }
+                    });
+                listing = true;
+            }
+            "--help" | "-h" => {
+                showing_usage = true;
+            }
             _ => {}
         }
     }
@@ -67,41 +124,54 @@ fn main() -> notify::Result<()> {
         panic!("Invalid flags provided");
     }
 
-    let path = path?.to_string_lossy().to_string();
+    if (command == "" && !listing && !removing) || showing_usage {
+        print_help();
+        Ok(())
+    } else if listing || removing {
+        Ok(())
+    } else {
+        let path = path?.to_string_lossy().to_string();
 
-    println!(
-        "Exec command waiting: {} {}",
-        &command,
-        &command_args.join(" ")
-    );
+        println!(
+            "Exec command waiting: {} {}",
+            &command,
+            &command_args.join(" ")
+        );
 
-    let panic_message = format!("failed to run cargo build on {:?}", path);
-    let success_message = format!("Build cargo project succeeded: {:?}", path);
-    let fail_message = format!("Build failed: {:?}", path);
-    let status_messages = StatusMessages {
-        panic_message,
-        success_message,
-        fail_message,
-    };
+        if should_save_command {
+            let save_line = format!("{}\\0{}\\0{}", &path, &command, &command_args.join(" "));
+            saver::write_new_line(SAVE_FILE_PATH, &save_line)?;
+            println!("Saved watchlist record {}!", &save_line)
+        }
 
-    let mut debouncer = DebouncedWatcher::new(
-        path.clone(),
-        Duration::from_millis(500),
-        command,
-        command_args,
-        should_rebuild,
-        status_messages.clone(),
-    )
-    .expect("Debouncer failed to initialize.");
+        let panic_message = format!("failed to run cargo build on {:?}", path);
+        let success_message = format!("Build cargo project succeeded: {:?}", path);
+        let fail_message = format!("Build failed: {:?}", path);
+        let status_messages = StatusMessages {
+            panic_message,
+            success_message,
+            fail_message,
+        };
 
-    debouncer.watch(Path::new(&path), RecursiveMode::Recursive)?;
+        let mut debouncer = DebouncedWatcher::new(
+            path.clone(),
+            Duration::from_millis(500),
+            command,
+            command_args,
+            should_rebuild,
+            status_messages.clone(),
+        )
+        .expect("Debouncer failed to initialize.");
 
-    println!("Watching {} for changes...", path);
+        debouncer.watch(Path::new(&path), RecursiveMode::Recursive)?;
 
-    // block the main thread to prevent the program from shutting down
-    let (_tx, rx) = channel::<()>();
-    rx.recv().ok();
-    Ok(())
+        println!("Watching {} for changes...", path);
+
+        // block the main thread to prevent the program from shutting down
+        let (_tx, rx) = channel::<()>();
+        rx.recv().ok();
+        Ok(())
+    }
 }
 
 fn should_rebuild(event_kind: &EventKind) -> bool {
@@ -111,4 +181,8 @@ fn should_rebuild(event_kind: &EventKind) -> bool {
         EventKind::Remove(_) => true,
         _ => false,
     }
+}
+
+fn print_help() {
+    println!("Usage: ");
 }
