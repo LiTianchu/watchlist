@@ -7,6 +7,8 @@ use std::sync::mpsc::{Receiver, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
+type ShouldRunPredicate = fn(&EventKind) -> bool;
+
 #[derive(Debug, Clone)]
 pub struct StatusMessages {
     pub panic_message: String,
@@ -27,9 +29,12 @@ impl DebouncedWatcher {
     pub fn new(
         watch_path: impl Into<String> + Send + 'static,
         debounce_duration: Duration,
-        callback: impl Fn(Vec<Event>, &str, &[&str], StatusMessages) + Send + 'static,
+        callback: impl Fn(Vec<Event>, &str, &[&str], ShouldRunPredicate, StatusMessages)
+        + Send
+        + 'static,
         command: String,
         command_args: Vec<String>,
+        should_run_predicate: ShouldRunPredicate,
         status_messages: StatusMessages,
     ) -> notify::Result<Self> {
         let (raw_tx, raw_rx) = channel::<Event>();
@@ -55,6 +60,7 @@ impl DebouncedWatcher {
                 callback,
                 &command,
                 &arg_refs,
+                should_run_predicate,
                 status_messages,
             );
         });
@@ -65,9 +71,10 @@ impl DebouncedWatcher {
     fn debounce_loop(
         rx: Receiver<Event>,
         debounce_duration: Duration,
-        callback: impl Fn(Vec<Event>, &str, &[&str], StatusMessages),
+        callback: impl Fn(Vec<Event>, &str, &[&str], ShouldRunPredicate, StatusMessages),
         command: &str,
         command_args: &[&str],
+        should_run_predicate: ShouldRunPredicate,
         status_messages: StatusMessages,
     ) {
         let mut pending: HashMap<PathBuf, PendingEvent> = HashMap::new();
@@ -102,7 +109,13 @@ impl DebouncedWatcher {
             });
 
             if !ready_events.is_empty() {
-                callback(ready_events, command, command_args, status_messages.clone());
+                callback(
+                    ready_events,
+                    command,
+                    command_args,
+                    should_run_predicate,
+                    status_messages.clone(),
+                );
             }
             thread::sleep(check_interval)
         }
@@ -148,6 +161,7 @@ fn main() -> notify::Result<()> {
         debounce_callback,
         "cargo".to_owned(),
         command_args,
+        should_rebuild,
         status_messages.clone(),
     )
     .expect("Debouncer failed to initialize.");
@@ -175,6 +189,7 @@ fn debounce_callback(
     events: Vec<Event>,
     command: &str,
     command_args: &[&str],
+    should_run_predicate: impl Fn(&EventKind) -> bool,
     status_messages: StatusMessages,
 ) {
     let mut event_count = 0;
@@ -192,7 +207,7 @@ fn debounce_callback(
     for event in events {
         let event_kind = event.kind;
 
-        if !should_rebuild(&event_kind) {
+        if !should_run_predicate(&event_kind) {
             continue;
         }
 
