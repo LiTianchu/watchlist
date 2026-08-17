@@ -44,8 +44,10 @@ impl DebouncedWatcher {
             Config::default(),
         )?;
 
-        let _path = watch_path.into();
         thread::spawn(move || {
+            let path_str = watch_path.into();
+            let command_dir = Path::new(&path_str);
+
             let arg_refs = command_args
                 .iter()
                 .map(|arg| arg.as_str())
@@ -54,6 +56,7 @@ impl DebouncedWatcher {
                 raw_rx,
                 debounce_duration,
                 command_exec_callback,
+                &command_dir,
                 &command,
                 &arg_refs,
                 event_allowed,
@@ -67,7 +70,8 @@ impl DebouncedWatcher {
     fn debounce_loop(
         rx: Receiver<Event>,
         debounce_duration: Duration,
-        callback: impl Fn(Vec<Event>, &str, &[&str], EventAllowedPredicate, StatusMessages),
+        callback: impl Fn(Vec<Event>, &Path, &str, &[&str], EventAllowedPredicate, StatusMessages),
+        command_dir: &Path,
         command: &str,
         command_args: &[&str],
         event_allowed: EventAllowedPredicate,
@@ -107,6 +111,7 @@ impl DebouncedWatcher {
             if !ready_events.is_empty() {
                 callback(
                     ready_events,
+                    command_dir,
                     command,
                     command_args,
                     event_allowed,
@@ -124,6 +129,7 @@ impl DebouncedWatcher {
 
 fn command_exec_callback(
     events: Vec<Event>,
+    command_dir: &Path,
     command: &str,
     command_args: &[&str],
     event_allowed: impl Fn(&EventKind) -> bool,
@@ -171,6 +177,7 @@ fn command_exec_callback(
     if event_count > 0 {
         let status = Command::new(command)
             .args(command_args)
+            .current_dir(command_dir)
             .status()
             .expect(&status_messages.panic_message);
         if status.success() {
