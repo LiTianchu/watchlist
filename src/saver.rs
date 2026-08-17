@@ -81,3 +81,23 @@ pub fn remove_line_by_index(save_path: impl Into<String>, index: usize) -> Resul
 
     Ok(())
 }
+
+pub fn read_line_by_index(save_path: impl Into<String>, index: usize) -> Result<String, Error> {
+    let save_path = save_path.into();
+
+    let file = OpenOptions::new()
+        .read(true)
+        .create(true)
+        .write(true)
+        .open(save_path.clone())?;
+
+    let reader = io::BufReader::new(file);
+
+    for (i, line) in reader.lines().enumerate() {
+        if i == index {
+            return Ok(line?);
+        }
+    }
+
+    Err(Error::new(io::ErrorKind::NotFound, "Line not found"))
+}

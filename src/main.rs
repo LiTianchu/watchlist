@@ -1,6 +1,6 @@
 use notify::{EventKind, RecursiveMode};
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::time::Duration;
 use watchlist::{
@@ -68,10 +68,48 @@ fn main() -> notify::Result<()> {
                     invalid_flags = true;
                 }
             }
+            "--use" | "-u" => {
+                if i + 1 < user_args.len() {
+                    let arg_val = &user_args[i + 1];
+                    // check if it is a number
+                    if arg_val.parse::<usize>().is_ok() {
+                        let record = saver::read_line_by_index(
+                            SAVE_FILE_PATH,
+                            arg_val.parse::<usize>().unwrap(),
+                        )?;
+                        let parts: Vec<&str> = record.split("\\0").collect();
+                        println!("\n=======Using Record Index: {}=======", i);
+                        for (i, part) in parts.iter().enumerate() {
+                            let mut label = "Unknown Record";
+                            if i == 0 {
+                                label = "Watch Path";
+                                path = Ok(PathBuf::from(parts[0]));
+                            } else if i == 1 {
+                                label = "Exec Command";
+                                command = parts[1].to_string();
+                            } else if i == 2 {
+                                label = "Command Argumnets";
+                                command_args = parts[2]
+                                    .split(" ")
+                                    .map(|s| s.to_string())
+                                    .collect::<Vec<_>>();
+                            }
+
+                            println!("{}: {}", label, part);
+                        }
+                    } else {
+                        eprintln!("Record index argument must be a number");
+                        invalid_flags = true;
+                    }
+                } else {
+                    eprintln!("No record index argument provided");
+                    invalid_flags = true;
+                }
+            }
             "--save" | "-s" => {
                 should_save_command = true;
             }
-            "--remove" | "-r" => {
+            "--delete" | "-d" => {
                 if i + 1 < user_args.len() && user_args[i + 1] != "" {
                     let arg_val = &user_args[i + 1];
                     // check if it is a number
@@ -141,7 +179,13 @@ fn main() -> notify::Result<()> {
         if should_save_command {
             let save_line = format!("{}\\0{}\\0{}", &path, &command, &command_args.join(" "));
             saver::write_new_line(SAVE_FILE_PATH, &save_line)?;
-            println!("Saved watchlist record {}!", &save_line)
+
+            println!(
+                "\n========Saved watchlist record:========= \nWatch path: {} \nCommand: {} \nCommand Args: {}",
+                &path,
+                &command,
+                &command_args.join(" ")
+            )
         }
 
         let panic_message = format!("failed to run cargo build on {:?}", path);
@@ -165,7 +209,7 @@ fn main() -> notify::Result<()> {
 
         debouncer.watch(Path::new(&path), RecursiveMode::Recursive)?;
 
-        println!("Watching {} for changes...", path);
+        println!("\nWatching {} for changes...", path);
 
         // block the main thread to prevent the program from shutting down
         let (_tx, rx) = channel::<()>();
