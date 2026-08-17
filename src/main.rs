@@ -7,6 +7,13 @@ use std::sync::mpsc::{Receiver, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[derive(Debug, Clone)]
+pub struct StatusMessages {
+    pub panic_message: String,
+    pub success_message: String,
+    pub fail_message: String,
+}
+
 struct PendingEvent {
     last_seen: Instant,
     event: Event,
@@ -20,7 +27,10 @@ impl DebouncedWatcher {
     pub fn new(
         watch_path: impl Into<String> + Send + 'static,
         debounce_duration: Duration,
-        callback: impl Fn(Vec<Event>, String) + Send + 'static,
+        callback: impl Fn(Vec<Event>, &str, &[&str], StatusMessages) + Send + 'static,
+        command: String,
+        command_args: Vec<String>,
+        status_messages: StatusMessages,
     ) -> notify::Result<Self> {
         let (raw_tx, raw_rx) = channel::<Event>();
 
@@ -33,23 +43,35 @@ impl DebouncedWatcher {
             Config::default(),
         )?;
 
-        let path = watch_path.into();
+        let _path = watch_path.into();
         thread::spawn(move || {
-            Self::debounce_loop(path, raw_rx, debounce_duration, callback);
+            let arg_refs = command_args
+                .iter()
+                .map(|arg| arg.as_str())
+                .collect::<Vec<_>>();
+            Self::debounce_loop(
+                raw_rx,
+                debounce_duration,
+                callback,
+                &command,
+                &arg_refs,
+                status_messages,
+            );
         });
 
         Ok(Self { watcher: watcher })
     }
 
     fn debounce_loop(
-        root_path: impl Into<String>,
         rx: Receiver<Event>,
         debounce_duration: Duration,
-        callback: impl Fn(Vec<Event>, String),
+        callback: impl Fn(Vec<Event>, &str, &[&str], StatusMessages),
+        command: &str,
+        command_args: &[&str],
+        status_messages: StatusMessages,
     ) {
         let mut pending: HashMap<PathBuf, PendingEvent> = HashMap::new();
         let check_interval = Duration::from_millis(50);
-        let path = root_path.into();
 
         loop {
             while let Ok(event) = rx.try_recv() {
@@ -80,7 +102,7 @@ impl DebouncedWatcher {
             });
 
             if !ready_events.is_empty() {
-                callback(ready_events, path.clone());
+                callback(ready_events, command, command_args, status_messages.clone());
             }
             thread::sleep(check_interval)
         }
@@ -101,9 +123,34 @@ fn main() -> notify::Result<()> {
         .expect("Path argument is not valid")
         .clone();
 
-    let mut debouncer =
-        DebouncedWatcher::new(path.clone(), Duration::from_millis(500), debounce_callback)
-            .expect("Debouncer failed to initialize.");
+    let toml_path = [path.clone(), "/Cargo.toml".to_string()].concat();
+    let target_path = [path.clone(), "/target".to_string()].concat();
+    let command_args = vec![
+        String::from("build"),
+        String::from("--manifest-path"),
+        toml_path,
+        String::from("--target-dir"),
+        target_path,
+    ];
+
+    let panic_message = format!("failed to run cargo build on {:?}", path);
+    let success_message = format!("Build cargo project succeeded: {:?}", path);
+    let fail_message = format!("Build failed: {:?}", path);
+    let status_messages = StatusMessages {
+        panic_message,
+        success_message,
+        fail_message,
+    };
+
+    let mut debouncer = DebouncedWatcher::new(
+        path.clone(),
+        Duration::from_millis(500),
+        debounce_callback,
+        "cargo".to_owned(),
+        command_args,
+        status_messages.clone(),
+    )
+    .expect("Debouncer failed to initialize.");
 
     debouncer.watch(Path::new(&path), RecursiveMode::Recursive)?;
 
@@ -124,7 +171,12 @@ fn should_rebuild(event_kind: &EventKind) -> bool {
     }
 }
 
-fn debounce_callback(events: Vec<Event>, root_path: String) {
+fn debounce_callback(
+    events: Vec<Event>,
+    command: &str,
+    command_args: &[&str],
+    status_messages: StatusMessages,
+) {
     let mut event_count = 0;
 
     let ignore_patterns = vec![
@@ -165,22 +217,14 @@ fn debounce_callback(events: Vec<Event>, root_path: String) {
     }
 
     if event_count > 0 {
-        let toml_path = [root_path.clone(), "/Cargo.toml".to_string()].concat();
-        let target_path = [root_path.clone(), "/target".to_string()].concat();
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "--manifest-path",
-                toml_path.as_ref(),
-                "--target-dir",
-                target_path.as_ref(),
-            ])
+        let status = Command::new(command)
+            .args(command_args)
             .status()
-            .expect(&format!("failed to run cargo build on {:?}", root_path));
+            .expect(&status_messages.panic_message);
         if status.success() {
-            println!("Build cargo project succeeded: {:?}", root_path);
+            println!("{}", &status_messages.success_message);
         } else {
-            eprintln!("Build failed: {:?}", root_path);
+            eprintln!("{}", &status_messages.fail_message);
         }
     }
 }
