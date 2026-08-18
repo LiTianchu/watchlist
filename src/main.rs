@@ -251,8 +251,8 @@ fn print_help() {
         "-l | --list: List all watch records with their indices",
         "-d | --delete <index>: Delete a watch record by its index",
         "-u | --use <index>: Use a watch record by its index",
-        "\nExample: watchlist --path . --exec \"npm run dev\" --save",
-        "Explaination: Watches the current directory for changes and runs \"npm run dev\" on change",
+        "\nExample: watchlist --path . --exec \"npm run build\" --save",
+        "Explaination: Watches the current directory for changes and runs \"npm run build\" on change",
         "\nExample: watchlist --use 0",
         "Explaination: Uses the saved watch record at index 0 to watch for changes and run the associated command",
     );
