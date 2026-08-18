@@ -100,7 +100,8 @@ fn main() -> notify::Result<()> {
                                 let initial_split: Vec<&str> = parts[2].split(" ").collect();
 
                                 command_args = if parts[1] == "sh" {
-                                    shell_words::split(parts[2]).expect("Failed to parse loaded shell command arguments")
+                                    shell_words::split(parts[2])
+                                        .expect("Failed to parse loaded shell command arguments")
                                 } else {
                                     initial_split.iter().map(|s| s.to_string()).collect()
                                 };
@@ -181,7 +182,7 @@ fn main() -> notify::Result<()> {
     } else {
         let path = path?.to_string_lossy().to_string();
 
-        let full_command = format!("{} {}", &command, &command_args.join(" "));
+        let full_command = format!("{} {}", &command, shell_words::join(&command_args));
         println!("Exec command waiting: {}", &full_command);
 
         if should_save_command {
