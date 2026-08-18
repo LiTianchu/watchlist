@@ -216,7 +216,7 @@ fn main() -> notify::Result<()> {
             Duration::from_millis(500),
             command,
             command_args,
-            should_rebuild,
+            included_events,
             status_messages.clone(),
         )
         .expect("Debouncer failed to initialize.");
@@ -232,7 +232,7 @@ fn main() -> notify::Result<()> {
     }
 }
 
-fn should_rebuild(event_kind: &EventKind) -> bool {
+fn included_events(event_kind: &EventKind) -> bool {
     match event_kind {
         EventKind::Modify(_) => true,
         EventKind::Create(_) => true,
@@ -242,5 +242,18 @@ fn should_rebuild(event_kind: &EventKind) -> bool {
 }
 
 fn print_help() {
-    println!("Usage: ");
+    println!(
+        "Usage: \n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        "-h | --help: Prints this help message",
+        "-p | --path <path>: Path to watch",
+        "-e | --exec <command>: Command to run on change",
+        "-s | --save: Save the current --path and --exec command to the watch record list",
+        "-l | --list: List all watch records with their indices",
+        "-d | --delete <index>: Delete a watch record by its index",
+        "-u | --use <index>: Use a watch record by its index",
+        "\nExample: watchlist --path . --exec \"npm run dev\" --save",
+        "Explaination: Watches the current directory for changes and runs \"npm run dev\" on change",
+        "\nExample: watchlist --use 0",
+        "Explaination: Uses the saved watch record at index 0 to watch for changes and run the associated command",
+    );
 }

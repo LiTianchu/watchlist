@@ -1,3 +1,4 @@
+use crate::patterns::{IGNORE_PATTERNS, WATCH_PATTERNS};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -137,19 +138,15 @@ fn command_exec_callback(
 ) {
     let mut event_count = 0;
 
-    let ignore_patterns = vec![
-        glob::Pattern::new("**/target/**").unwrap(),
-        glob::Pattern::new("**/.git/**").unwrap(),
-        glob::Pattern::new("**/node_modules/**").unwrap(),
-    ];
-    let watch_patterns = vec![
-        glob::Pattern::new("*.rs").unwrap(),
-        glob::Pattern::new("*.txt").unwrap(),
-        glob::Pattern::new("*.png").unwrap(),
-        glob::Pattern::new("*.jpg").unwrap(),
-        glob::Pattern::new("*.jpeg").unwrap(),
-        glob::Pattern::new("*.toml").unwrap(),
-    ];
+    let ignore_patterns = IGNORE_PATTERNS
+        .iter()
+        .map(|p| glob::Pattern::new(p).unwrap())
+        .collect::<Vec<_>>();
+
+    let watch_patterns = WATCH_PATTERNS
+        .iter()
+        .map(|p| glob::Pattern::new(p).unwrap())
+        .collect::<Vec<_>>();
 
     for event in events {
         let event_kind = event.kind;
