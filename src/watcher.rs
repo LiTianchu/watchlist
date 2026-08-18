@@ -150,6 +150,7 @@ fn command_exec_callback(
 
     for event in events {
         let event_kind = event.kind;
+        // println!("event kind: {:?}", event_kind);
 
         if !event_allowed(&event_kind) {
             continue;
