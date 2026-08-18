@@ -234,6 +234,7 @@ fn main() -> notify::Result<()> {
 
 fn included_events(event_kind: &EventKind) -> bool {
     match event_kind {
+        EventKind::Any => true,
         EventKind::Modify(_) => true,
         EventKind::Create(_) => true,
         EventKind::Remove(_) => true,
