@@ -83,10 +83,13 @@ fn main() -> notify::Result<()> {
                     if arg_val.parse::<usize>().is_ok() {
                         let record = saver::read_line_by_index(
                             SAVE_FILE_PATH,
-                            arg_val.parse::<usize>().unwrap(),
+                            arg_val.clone().parse::<usize>().unwrap(),
                         )?;
                         let parts: Vec<&str> = record.split("\\0").collect();
-                        println!("\n=======Using Record Index: {}=======", i);
+                        println!(
+                            "\n=======Using Record Index: {}=======",
+                            arg_val.parse::<usize>().unwrap()
+                        );
                         for (i, part) in parts.iter().enumerate() {
                             let mut label = "Unknown Record";
                             if i == 0 {
