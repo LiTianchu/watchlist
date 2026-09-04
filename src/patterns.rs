@@ -67,8 +67,7 @@ pub const WATCH_PATTERNS: &[&str] = &[
     "*.gd", "*.tscn", "*.tres", "*.godot", "*.shader", "*.uss", "*.uxml",
     // Shaders (GLSL, HLSL, WGSL, SLANG)
     "*.glsl", "*.hlsl", "*.wgsl", "*.frag", "*.vert", "*.comp", "*.slang",
-    // Markup / config / data
+    // Markup / config / data / others
     "*.html", "*.css", "*.scss", "*.sass", "*.toml", "*.yaml", "*.yml", "*.json", "*.jsonc",
-    // Images and asset files (for sprite pipelines)
-    "*.png", "*.jpg", "*.jpeg", "*.webp", "*.svg", "*.txt",
+    "*.tex", "*.png", "*.jpg", "*.jpeg", "*.webp", "*.svg", "*.txt",
 ];
