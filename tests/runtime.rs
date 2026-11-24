@@ -65,9 +65,11 @@ struct Fixture {
 impl Fixture {
     fn new(delay: u64) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().to_path_buf();
+        // Exercise the Windows temp-directory ancestor collision on every OS.
+        // The built-in **/Temp/** exclusion must only apply below the watch root.
+        let root = dir.path().join("Temp").join("project");
         let watched = root.join("watched");
-        fs::create_dir(&watched).unwrap();
+        fs::create_dir_all(&watched).unwrap();
         fs::write(root.join("child-scenario"), delay.to_string()).unwrap();
         fs::write(watched.join("input.rs"), "initial").unwrap();
         Self {

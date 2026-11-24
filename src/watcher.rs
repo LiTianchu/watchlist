@@ -91,12 +91,21 @@ impl Filter {
             // Normalize separators for portable configuration patterns.
             let relative = relative.to_string_lossy().replace('\\', "/");
             let absolute = path.to_string_lossy().replace('\\', "/");
-            let matches = |p: &glob::Pattern| p.matches(&relative) || p.matches(&absolute);
-            let excluded = self.excludes.iter().any(|p| {
-                matches(p)
-                    || p.matches(&format!("{relative}/"))
-                    || p.matches(&format!("{absolute}/"))
-            });
+            // Relative rules describe contents of the selected root. Matching
+            // their absolute ancestors would exclude every project in Windows'
+            // user Temp directory (and projects under build/target elsewhere).
+            let target = |p: &glob::Pattern| {
+                if Path::new(p.as_str()).is_absolute() {
+                    absolute.as_str()
+                } else {
+                    relative.as_str()
+                }
+            };
+            let matches = |p: &glob::Pattern| p.matches(target(p));
+            let excluded = self
+                .excludes
+                .iter()
+                .any(|p| matches(p) || p.matches(&format!("{}/", target(p))));
             !excluded && (structural || path.is_dir() || self.includes.iter().any(matches))
         })
     }
@@ -299,31 +308,64 @@ impl Running {
         Ok(status)
     }
     fn cancel(&mut self) -> io::Result<()> {
-        if self.reaped {
+        self.cancel_with_tree_signal(signal_process_tree)
+    }
+
+    fn cancel_with_tree_signal(
+        &mut self,
+        signal_tree: impl FnOnce(&mut Child) -> io::Result<()>,
+    ) -> io::Result<()> {
+        // Shutdown can arrive after the child exits but before the worker polls it.
+        if self.reaped || self.poll()?.is_some() {
             return Ok(());
         }
-        #[cfg(unix)]
-        {
-            // The child leads a dedicated process group; cancel descendants too.
-            let pid = i32::try_from(self.child.id()).map_err(io::Error::other)?;
-            // SAFETY: kill targets only the process group created in spawn().
-            let result = unsafe { libc::kill(-pid, libc::SIGKILL) };
-            if result != 0 && io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
-                return Err(io::Error::last_os_error());
+        if let Err(error) = signal_tree(&mut self.child) {
+            // The child can also exit between the check above and signalling.
+            // Darwin may return EPERM for a group containing only zombies.
+            if self.poll()?.is_some() {
+                return Ok(());
             }
+            return Err(error);
         }
-        #[cfg(windows)]
-        {
-            // taskkill is supplied by Windows and terminates the descendant tree.
-            let _ = Command::new("taskkill")
-                .args(["/PID", &self.child.id().to_string(), "/T", "/F"])
-                .status();
+        // Also cover a process that escaped its original group. Never wait
+        // indefinitely after a failed kill of a child that is still alive.
+        if let Err(error) = self.child.kill() {
+            if self.poll()?.is_some() {
+                return Ok(());
+            }
+            return Err(error);
         }
-        let _ = self.child.kill(); // Also cover a process that escaped its original group.
         self.child.wait()?;
         self.reaped = true;
         Ok(())
     }
+}
+
+fn signal_process_tree(child: &mut Child) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        // The child leads a dedicated process group; cancel descendants too.
+        let pid = i32::try_from(child.id()).map_err(io::Error::other)?;
+        // SAFETY: kill targets only the process group created in Running::spawn().
+        if unsafe { libc::kill(-pid, libc::SIGKILL) } != 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(error);
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        // taskkill is supplied by Windows and terminates the descendant tree.
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            // A child may exit during taskkill's startup. Direct-child cleanup
+            // below checks errors without printing benign "process not found".
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    Ok(())
 }
 impl Drop for Running {
     fn drop(&mut self) {
@@ -539,6 +581,54 @@ mod tests {
         assert!(!filter.relevant(&change("project/a.rs"), included_events));
     }
     #[test]
+    fn ignores_apply_inside_the_watch_root_not_to_its_ancestors() {
+        for root in [
+            "project/Temp/workspace",
+            "project/target/workspace",
+            "C:/Users/runneradmin/AppData/Local/Temp/project",
+        ] {
+            let root = PathBuf::from(root);
+            let filter = Filter::new(root.clone(), &WatchOptions::default()).unwrap();
+            let change = |name: &str| {
+                Event::new(EventKind::Modify(ModifyKind::Any)).add_path(root.join(name))
+            };
+            assert!(
+                filter.relevant(&change("input.rs"), included_events),
+                "root: {}",
+                root.display()
+            );
+            for ignored in ["Temp/input.rs", "target/input.rs", "README.md"] {
+                assert!(!filter.relevant(&change(ignored), included_events));
+            }
+        }
+    }
+    #[test]
+    fn custom_rules_are_root_relative_unless_explicitly_absolute() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Temp").join("project");
+        let mut options = WatchOptions {
+            excludes: vec!["**/Temp/**".into()],
+            default_ignores: false,
+            ..WatchOptions::default()
+        };
+        let change =
+            |path: &str| Event::new(EventKind::Modify(ModifyKind::Any)).add_path(root.join(path));
+        let filter = Filter::new(root.clone(), &options).unwrap();
+        assert!(filter.relevant(&change("src/input.rs"), included_events));
+        assert!(!filter.relevant(&change("Temp/input.rs"), included_events));
+
+        options.includes = vec![root.join("src/*.rs").to_string_lossy().replace('\\', "/")];
+        options.excludes = vec![
+            root.join("src/blocked.rs")
+                .to_string_lossy()
+                .replace('\\', "/"),
+        ];
+        let filter = Filter::new(root.clone(), &options).unwrap();
+        assert!(filter.relevant(&change("src/input.rs"), included_events));
+        assert!(!filter.relevant(&change("src/blocked.rs"), included_events));
+        assert!(!filter.relevant(&change("other/input.rs"), included_events));
+    }
+    #[test]
     fn errors_and_pathless_rescan_schedule_recovery() {
         let filter = Filter::new(PathBuf::from("project"), &WatchOptions::default()).unwrap();
         let shared = shared(ExecutionPolicy::Queue);
@@ -613,5 +703,73 @@ mod tests {
                 .to_string()
                 .contains("panicked")
         );
+    }
+
+    #[cfg(unix)]
+    fn shell_child(script: &str) -> Running {
+        Running::spawn("sh", &["-c".into(), script.into()], Path::new(".")).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_reaps_zombies_before_signalling() {
+        for _ in 0..16 {
+            let mut running = shell_child("exit 0");
+            let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::uninit();
+            // SAFETY: info is writable and the PID belongs to this child.
+            // WNOWAIT waits for exit without reaping, deterministically retaining
+            // the zombie state that triggers Darwin's group-signalling EPERM.
+            assert_eq!(
+                unsafe {
+                    libc::waitid(
+                        libc::P_PID,
+                        running.child.id() as libc::id_t,
+                        info.as_mut_ptr(),
+                        libc::WEXITED | libc::WNOWAIT,
+                    )
+                },
+                0
+            );
+            assert!(!running.reaped);
+            running
+                .cancel_with_tree_signal(|_| panic!("exited child must not be signalled"))
+                .unwrap();
+            assert!(running.reaped);
+            assert!(running.child.try_wait().unwrap().unwrap().success());
+            running.cancel().unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_rechecks_exit_after_group_signal_error() {
+        let mut running = shell_child("exec sleep 30");
+        running
+            .cancel_with_tree_signal(|child| {
+                // Exit after cancellation's initial poll, then simulate Darwin's
+                // EPERM. Child::wait caches status for the subsequent try_wait.
+                child.kill()?;
+                child.wait()?;
+                Err(io::Error::from_raw_os_error(libc::EPERM))
+            })
+            .unwrap();
+        assert!(running.reaped);
+        running.cancel().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_preserves_errors_for_live_children() {
+        let mut running = shell_child("exec sleep 30");
+        let error = running
+            .cancel_with_tree_signal(|_| Err(io::Error::from_raw_os_error(libc::EPERM)))
+            .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::EPERM));
+        assert!(!running.reaped);
+        assert!(running.poll().unwrap().is_none());
+        // Genuine cancellation still terminates and reaps a live child.
+        running.cancel().unwrap();
+        assert!(running.reaped);
+        assert!(!running.child.try_wait().unwrap().unwrap().success());
     }
 }

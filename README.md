@@ -46,7 +46,7 @@ watchlist --use 0 --debounce 200 --timeout 30000 --policy restart
 watchlist -p . --poll 1000 --exclude '**/generated/**' -e "npm test"
 ```
 
-Quote glob patterns. Explicit options override saved values. `--exec` uses shell-style quoting; shell operators require an explicit shell, such as `-e "sh -c 'build && test'"`. Use `-- COMMAND ARG...` for literal arguments, especially Windows paths. Other durations must be positive and at most one year.
+Quote glob patterns. Relative globs apply inside the watched directory; absolute globs match full paths. Explicit options override saved values. `--exec` uses shell-style quoting; shell operators require an explicit shell, such as `-e "sh -c 'build && test'"`. Use `-- COMMAND ARG...` for literal arguments, especially Windows paths. Other durations must be positive and at most one year.
 
 ## TUI keys
 
