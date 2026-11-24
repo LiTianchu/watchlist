@@ -47,6 +47,7 @@ impl Debounce {
 
 struct Filter {
     root: PathBuf,
+    canonical_root: Option<PathBuf>,
     includes: Vec<glob::Pattern>,
     excludes: Vec<glob::Pattern>,
 }
@@ -68,6 +69,12 @@ impl Filter {
                 .collect::<Result<Vec<_>, _>>()
         };
         Ok(Self {
+            // FSEvents reports canonical paths, whereas polling and other
+            // backends may retain the caller's symlink spelling of the root.
+            canonical_root: root
+                .canonicalize()
+                .ok()
+                .filter(|canonical| canonical != &root),
             root,
             includes: compile(includes)?,
             excludes: compile(excludes)?,
@@ -87,7 +94,15 @@ impl Filter {
                 | EventKind::Modify(notify::event::ModifyKind::Name(_))
         );
         event.paths.iter().any(|path| {
-            let relative = path.strip_prefix(&self.root).unwrap_or(path);
+            let relative = path
+                .strip_prefix(&self.root)
+                .ok()
+                .or_else(|| {
+                    self.canonical_root
+                        .as_ref()
+                        .and_then(|root| path.strip_prefix(root).ok())
+                })
+                .unwrap_or(path);
             // Normalize separators for portable configuration patterns.
             let relative = relative.to_string_lossy().replace('\\', "/");
             let absolute = path.to_string_lossy().replace('\\', "/");
@@ -245,10 +260,14 @@ impl DebouncedWatcher {
         })
     }
     pub fn watch(&mut self, path: &Path, mode: RecursiveMode) -> notify::Result<()> {
-        self.watcher
+        let watcher = self
+            .watcher
             .as_mut()
-            .ok_or_else(|| notify::Error::generic("watcher has shut down"))?
-            .watch(path, mode)
+            .ok_or_else(|| notify::Error::generic("watcher has shut down"))?;
+        // Register the physical directory consistently, including when the
+        // caller uses a symlink or macOS's /var alias for /private/var.
+        let canonical_path = path.canonicalize().map_err(notify::Error::io)?;
+        watcher.watch(&canonical_path, mode)
     }
     pub fn trigger(&self) {
         self.shared.mark();
@@ -627,6 +646,29 @@ mod tests {
         assert!(filter.relevant(&change("src/input.rs"), included_events));
         assert!(!filter.relevant(&change("src/blocked.rs"), included_events));
         assert!(!filter.relevant(&change("other/input.rs"), included_events));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn canonical_events_use_the_same_relative_rules_as_symlink_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let real_root = dir.path().join("Temp").join("project");
+        std::fs::create_dir_all(real_root.join("src")).unwrap();
+        let alias = dir.path().join("alias");
+        std::os::unix::fs::symlink(&real_root, &alias).unwrap();
+        let filter = Filter::new(alias.clone(), &WatchOptions::default()).unwrap();
+        let canonical = real_root.canonicalize().unwrap();
+        let change = |path| Event::new(EventKind::Modify(ModifyKind::Any)).add_path(path);
+        assert!(filter.relevant(&change(canonical.join("src/input.rs")), included_events));
+        assert!(filter.relevant(&change(alias.join("src/input.rs")), included_events));
+        assert!(!filter.relevant(&change(canonical.join("Temp/input.rs")), included_events));
+        // Deleted paths cannot be canonicalized when handling their event.
+        let file = canonical.join("src/removed.rs");
+        std::fs::write(&file, "").unwrap();
+        std::fs::remove_file(&file).unwrap();
+        assert!(filter.relevant(
+            &Event::new(EventKind::Remove(notify::event::RemoveKind::File)).add_path(file),
+            included_events
+        ));
     }
     #[test]
     fn errors_and_pathless_rescan_schedule_recovery() {

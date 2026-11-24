@@ -49,6 +49,7 @@ fn count(path: &Path, marker: &str) -> usize {
         .filter(|s| *s == marker)
         .count()
 }
+#[track_caller]
 fn wait_for(mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
@@ -87,8 +88,11 @@ impl Fixture {
         }
     }
     fn watcher(&self, options: WatchOptions) -> DebouncedWatcher {
+        self.watcher_at(self.watched.clone(), options)
+    }
+    fn watcher_at(&self, path: PathBuf, options: WatchOptions) -> DebouncedWatcher {
         DebouncedWatcher::with_options(
-            self.watched.clone(),
+            path,
             std::env::current_exe().unwrap().to_str().unwrap().into(),
             vec![
                 "--exact".into(),
@@ -126,6 +130,19 @@ fn polling_observes_changes() {
     watcher.watch(&f.watched, RecursiveMode::Recursive).unwrap();
     thread::sleep(Duration::from_millis(150));
     fs::write(f.watched.join("input.rs"), "polling-change").unwrap();
+    wait_for(|| count(&f.log, "done") >= 1);
+    watcher.shutdown().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn native_events_through_a_symlinked_watch_root() {
+    let f = Fixture::new(0);
+    let alias = f._dir.path().join("watch-alias");
+    std::os::unix::fs::symlink(&f.watched, &alias).unwrap();
+    let mut watcher = f.watcher_at(alias.clone(), f.options());
+    watcher.watch(&alias, RecursiveMode::Recursive).unwrap();
+    fs::write(f.watched.join("input.rs"), "changed through real path").unwrap();
     wait_for(|| count(&f.log, "done") >= 1);
     watcher.shutdown().unwrap();
 }
