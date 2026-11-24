@@ -68,11 +68,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let mut record = if let Some(index) = cli.use_index {
-        store
-            .records()?
+        let records = store.records()?;
+        records
             .get(index)
             .cloned()
-            .ok_or("saved record index not found")?
+            .ok_or_else(|| {
+                let available = if records.is_empty() { "no saved records exist".to_string() }
+                    else { format!("valid indices are 0 through {}", records.len() - 1) };
+                format!("invalid --use index {index}: {available}. Use watchlist --list to see saved records, or --tui to create one.")
+            })?
     } else {
         Record {
             version: 1,
@@ -94,12 +98,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         record.set_label(label);
     }
     cli.apply_options(&mut record.options)?;
-    record.path = record.path.canonicalize()?;
+    record.path = record.path.canonicalize().map_err(|error| {
+        format!(
+            "invalid --path {:?}: {error}; choose an existing directory with --path <PATH>",
+            record.path
+        )
+    })?;
     if !record.path.is_dir() {
         return Err("--path must be a directory; use --include to select files".into());
     }
     if let Some(workdir) = &mut record.options.workdir {
-        *workdir = workdir.canonicalize()?;
+        *workdir = workdir.canonicalize().map_err(|error| {
+            format!("invalid --workdir {workdir:?}: {error}; choose an existing directory with --workdir <PATH>")
+        })?;
         if !workdir.is_dir() {
             return Err("--workdir must be a directory".into());
         }

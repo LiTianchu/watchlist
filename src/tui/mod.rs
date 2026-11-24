@@ -107,7 +107,7 @@ impl App {
                 .or(self.list.selected()),
         );
         self.editor = None;
-        self.status("Configuration saved. Use --use INDEX to watch it.", false);
+        self.status("Configuration saved. Use --use <INDEX> to watch it.", false);
         Ok(())
     }
     fn handle(&mut self, key: KeyEvent) {

@@ -111,3 +111,147 @@ fn labels_display_only_for_named_records() {
     assert!(output.status.success());
     assert!(!String::from_utf8_lossy(&output.stdout).contains("Label:"));
 }
+
+#[test]
+fn watch_options_alone_explain_the_missing_command_instead_of_printing_help() {
+    let dir = tempfile::tempdir().unwrap();
+    for args in [
+        vec!["--max-wait", "4000"],
+        vec!["--save"],
+        vec!["--path", "."],
+        vec!["--label", "Build"],
+        vec!["--initial"],
+        vec!["--include", "**/*.rs"],
+    ] {
+        let output = app(dir.path()).args(&args).output().unwrap();
+        assert!(!output.status.success(), "{args:?}");
+        assert!(output.stdout.is_empty(), "help must not hide the error");
+        let error = String::from_utf8_lossy(&output.stderr);
+        for expected in [
+            args[0],
+            "requires --exec <COMMAND>, --use <INDEX>, or -- <COMMAND>",
+            "Example:",
+            "--tui",
+        ] {
+            assert!(
+                error.contains(expected),
+                "{args:?}: missing {expected:?} in {error}"
+            );
+        }
+    }
+    assert!(!dir.path().join(".watchlist").exists());
+}
+
+#[test]
+fn invalid_values_report_the_option_value_and_correction() {
+    let dir = tempfile::tempdir().unwrap();
+    for (flag, value, expected) in [
+        ("--max-wait", "many", "milliseconds"),
+        ("--timeout", "0", "from 1"),
+        ("--poll", "-1", "milliseconds"),
+        ("--debounce", "31536000001", "one year"),
+        ("--policy", "parallel", "queue, restart, or ignore"),
+        ("--include", "[", "glob"),
+        ("--use", "abc", "zero-based"),
+        ("--delete", "-1", "--list"),
+    ] {
+        let output = app(dir.path()).args([flag, value]).output().unwrap();
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        for text in [flag, value, expected] {
+            assert!(error.contains(text), "{error}");
+        }
+        assert!(output.stdout.is_empty());
+    }
+    for args in [
+        vec!["--max-wait"],
+        vec!["--path", "--list"],
+        vec!["--use", "--save"],
+    ] {
+        let output = app(dir.path()).args(args).output().unwrap();
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains("requires a value immediately after it"),
+            "{error}"
+        );
+        assert!(error.contains("Example:"), "{error}");
+    }
+}
+
+#[test]
+fn management_conflicts_identify_the_ignored_option_and_do_not_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(".watchlist");
+    fs::write(&path, "project\\0pwd\\0\n").unwrap();
+    let original = fs::read(&path).unwrap();
+    for (args, action, conflict) in [
+        (
+            vec!["--delete", "0", "--max-wait", "4000"],
+            "--delete",
+            "--max-wait",
+        ),
+        (vec!["--list", "--path", "."], "--list", "--path"),
+        (vec!["--tui", "--debounce", "200"], "--tui", "--debounce"),
+        (vec!["--list", "--use", "0"], "--list", "--use"),
+    ] {
+        let output = app(dir.path()).args(args).output().unwrap();
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains(&format!("{action} cannot be combined with {conflict}")),
+            "{error}"
+        );
+        assert_eq!(fs::read(&path).unwrap(), original);
+    }
+}
+
+#[test]
+fn no_arguments_and_help_explain_actions_requirements_and_order() {
+    let dir = tempfile::tempdir().unwrap();
+    for args in [vec![], vec!["--help"]] {
+        let output = app(dir.path()).args(args).output().unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let help = String::from_utf8_lossy(&output.stdout);
+        for text in [
+            "START WATCHING",
+            "STANDALONE ACTIONS",
+            "WATCH OPTIONS - require",
+            "These options cannot be used alone",
+            "Order does not matter",
+            "watchlist --use 0 --max-wait 4000",
+        ] {
+            assert!(help.contains(text), "missing {text:?}");
+        }
+    }
+}
+
+#[test]
+fn nonexistent_paths_and_saved_indices_report_the_relevant_flag() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing-directory");
+    for flag in ["--path", "--workdir"] {
+        let output = app(dir.path())
+            .args(["--exec", "unused"])
+            .arg(flag)
+            .arg(&missing)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains(flag), "{error}");
+        assert!(error.contains("missing-directory"), "{error}");
+        assert!(error.contains("existing directory"), "{error}");
+    }
+    let output = app(dir.path()).args(["--use", "7"]).output().unwrap();
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success());
+    assert!(error.contains("invalid --use index 7"));
+    assert!(error.contains("no saved records exist"));
+    assert!(error.contains("--list"));
+    fs::write(dir.path().join(".watchlist"), "project\\0pwd\\0\n").unwrap();
+    let output = app(dir.path()).args(["--use", "7"]).output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("valid indices are 0 through 0"));
+}

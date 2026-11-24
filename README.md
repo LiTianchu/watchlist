@@ -26,18 +26,24 @@ Existing short flags remain available: `-h` help, `-p` path, `-e` command, `-s` 
 
 ## Watch options
 
+Values in `<...>` are placeholders: replace them with your values and omit the brackets. Square brackets indicate optional parts; runnable examples use actual values.
+
+Every option below needs `--exec <COMMAND>`, `--use <INDEX>`, or `-- <COMMAND>` in the same invocation. For example, `--max-wait 4000` alone is an error; use `watchlist --use 0 --max-wait 4000`. Order is flexible with `--exec`/`--use`; all Watchlist options must precede `-- <COMMAND>`.
+
+`--list` and `--delete <INDEX>` work alone or together. `--tui` only accepts an optional `--use <INDEX>`. Watch options affect a running session; use the TUI to edit stored settings without starting a command.
+
 ```text
---include GLOB          Repeatable allowlist; replaces default file extensions
---label NAME            Optional record nickname; an empty name clears it
---exclude GLOB          Repeatable additional exclusions; exclusions win
---no-default-ignores   Disable built-in exclusions
---workdir PATH        Command working directory (default: watched directory)
---poll MS             Content-aware polling instead of native events
---debounce MS         Quiet period (default: 500 ms; zero allowed)
---max-wait MS         Maximum delay during continuous changes (default: 5000 ms)
---timeout MS          Cancel commands after this duration (default: unlimited)
---policy POLICY       queue (one pending rerun), restart, or ignore (default: queue)
---initial             Run immediately after watching starts
+--include <GLOB>          Repeatable allowlist; replaces default file extensions
+--label <NAME>            Optional record nickname; an empty name clears it
+--exclude <GLOB>          Repeatable additional exclusions; exclusions win
+--no-default-ignores      Disable built-in exclusions
+--workdir <PATH>          Command working directory (default: watched directory)
+--poll <MS>               Content-aware polling instead of native events
+--debounce <MS>           Quiet period (default: 500 ms; zero allowed)
+--max-wait <MS>           Maximum delay during continuous changes (default: 5000 ms)
+--timeout <MS>            Cancel commands after this duration (default: unlimited)
+--policy <POLICY>         queue (one pending rerun), restart, or ignore (default: queue)
+--initial                 Run immediately after watching starts
 ```
 
 ```sh
@@ -46,7 +52,7 @@ watchlist --use 0 --debounce 200 --timeout 30000 --policy restart
 watchlist -p . --poll 1000 --exclude '**/generated/**' -e "npm test"
 ```
 
-Quote glob patterns. Relative globs apply inside the watched directory; absolute globs match full paths. Explicit options override saved values. `--exec` uses shell-style quoting; shell operators require an explicit shell, such as `-e "sh -c 'build && test'"`. Use `-- COMMAND ARG...` for literal arguments, especially Windows paths. Other durations must be positive and at most one year.
+Quote glob patterns. Relative globs apply inside the watched directory; absolute globs match full paths. Explicit options override saved values. `--exec` uses shell-style quoting; shell operators require an explicit shell, such as `-e "sh -c 'build && test'"`. Use `-- <COMMAND> [<ARG>...]` for literal arguments, especially Windows paths. Other durations must be positive and at most one year.
 
 ## TUI keys
 
